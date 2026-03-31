@@ -1,18 +1,3 @@
-# Copyright (C) 2022-2025 Shijiazhuang Xianyu Digital Biotechnology Co., Ltd
-
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import argparse
 import os
 import pickle
@@ -55,32 +40,26 @@ def process(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Preprocess PDBbind into graph features')
-    parser.add_argument('--pdbbind', default='data/v2019',
-                        help='Path to PDBbind directory (default: data/v2019)')
+    parser = argparse.ArgumentParser(description='Preprocess CASF-2016 core set into graph features')
     parser.add_argument('--coreset', default='data/CASF-2016/coreset',
-                        help='Path to CASF core set directory (default: data/CASF-2016/coreset)')
-    parser.add_argument('--out', default='data/processed/graphs',
-                        help='Output directory for graph .pkl files (default: data/processed/graphs)')
+                        help='Path to CASF-2016 coreset directory (default: data/CASF-2016/coreset)')
+    parser.add_argument('--out', default='data/processed/coreset_graphs',
+                        help='Output directory for graph .pkl files (default: data/processed/coreset_graphs)')
     parser.add_argument('--threshold', type=float, default=5.0,
-                        help='Distance threshold in Angstroms for protein-ligand edges (default: 5.0)')
+                        help='Distance threshold in Ångströms (default: 5.0)')
     parser.add_argument('--workers', type=int, default=os.cpu_count() - 1,
                         help='Number of worker processes (default: cpu_count - 1)')
     args = parser.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    coreset_names = set(os.listdir(args.coreset))
     already_done = set(f.split('.')[0] for f in os.listdir(args.out))
+    all_ids = [d for d in os.listdir(args.coreset)
+               if len(d) == 4 and d not in already_done]
 
-    all_ids = [
-        d for d in os.listdir(args.pdbbind)
-        if len(d) == 4 and d not in coreset_names and d not in already_done
-    ]
+    print(f'Processing {len(all_ids)} core set complexes '
+          f'(skipping {len(already_done)} already done)')
 
-    print(f'Processing {len(all_ids)} complexes with {args.workers} workers '
-          f'(threshold={args.threshold}Å, skipping {len(already_done)} already done)')
-
-    tasks = [(pdb_id, args.pdbbind, args.out, args.threshold) for pdb_id in all_ids]
+    tasks = [(pdb_id, args.coreset, args.out, args.threshold) for pdb_id in all_ids]
 
     with Pool(processes=args.workers) as pool:
         results = list(tqdm(pool.imap_unordered(process, tasks), total=len(tasks)))
@@ -88,11 +67,7 @@ def main():
     n_ok = sum(1 for _, s in results if s == 'ok')
     n_none = sum(1 for _, s in results if s == 'none')
     n_exc = sum(1 for _, s in results if s == 'exception')
-    failed = [r[0] for r in results if r[1] != 'ok']
-
     print(f'\nDone: {n_ok} ok, {n_none} missing mol/protein, {n_exc} exceptions')
-    if failed:
-        print(f'Failed IDs: {failed[:20]}{"..." if len(failed) > 20 else ""}')
 
 
 if __name__ == '__main__':

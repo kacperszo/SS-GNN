@@ -52,7 +52,7 @@ class Batch(Data):
         Additionally, creates assignment batch vectors for each key in
         :obj:`follow_batch`."""
 
-        keys = [set(data.keys) for data in data_list]
+        keys = [set(data.keys()) for data in data_list]
         keys = list(set.union(*keys))
         assert 'batch' not in keys
 
@@ -154,7 +154,7 @@ class Batch(Data):
         batch.__num_nodes_list__ = num_nodes_list
 
         ref_data = data_list[0]
-        for key in batch.keys:
+        for key in batch.keys():
             items = batch[key]
             item = items[0]
             if isinstance(item, Tensor):

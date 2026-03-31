@@ -13,11 +13,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import argparse
 import os
 import time
 import copy
 
 import torch
+from tqdm import tqdm
 from sklearn.metrics import mean_squared_error
 from scipy.stats import pearsonr
 from lifelines.utils import concordance_index
@@ -35,14 +37,14 @@ class Trainer:
             Drug Target Binding Affinity
     '''
 
-    def __init__(self, device='cuda:0'):
+    def __init__(self, data_path, label_path, device='cuda:0'):
         self.lr = 0.001
         self.decay = 0.00001
         self.BATCH_SIZE = 64
         self.train_epoch = 1000
 
-        self.path = '../data/mice_features2/all'
-        self.label_path = '../data/mice_features2/total_labels.pkl'
+        self.path = data_path
+        self.label_path = label_path
 
         self.device = device
         self.config = None
@@ -106,8 +108,10 @@ class Trainer:
         print('--- Go for Training ---')
         t_start = time.time()
         currentPearson = 0.0
-        for epo in range(self.train_epoch):
-            for i, (x, y) in enumerate(self.trainloader):
+        epoch_bar = tqdm(range(self.train_epoch), desc='Epochs')
+        for epo in epoch_bar:
+            batch_bar = tqdm(self.trainloader, desc=f'Epoch {epo+1}', leave=False)
+            for i, (x, y) in enumerate(batch_bar):
                 x, y = set_data_device(
                     (x, y), self.device)
                 score = self.model(x)
@@ -117,14 +121,8 @@ class Trainer:
                 loss.backward()
                 self.opt.step()
 
-                if (i % 100 == 0):
-                    t_now = time.time()
-                    print(
-                        'Training at Epoch ' + str(epo + 1) +
-                        ' iteration ' + str(i) +
-                        ' with loss ' + str(loss.cpu().detach().numpy())[:7] +
-                        ". Total time " + str(int(t_now - t_start)/3600)[:7] +
-                        " hours")
+                if i % 10 == 0:
+                    batch_bar.set_postfix(loss=f'{loss.item():.4f}')
 
             # validate, select the best model up to now
             with torch.set_grad_enabled(False):
@@ -132,11 +130,9 @@ class Trainer:
                 if mse < max_MSE:
                     model_max = copy.deepcopy(self.model)
                     max_MSE = mse
-                print('Validation at Epoch ' + str(epo + 1) +
-                      ' , MSE: ' + str(mse)[:7] +
-                      ' , Pearson Correlation: ' + str(r2)[:7] +
-                      ' with p-value: ' + str(p_val)[:7] +
-                      ' , Concordance Index: '+str(CI)[:7])
+                epoch_bar.set_postfix(MSE=f'{mse:.4f}', R=f'{r2:.4f}', CI=f'{CI:.4f}')
+                print(f'Epoch {epo+1} | MSE: {mse:.4f} | Pearson: {r2:.4f} '
+                      f'(p={p_val:.2e}) | CI: {CI:.4f}')
             self.save_model('saved_models/model_'+str(epo)+'.pt')
             if r2 > currentPearson:
                 self.save_model('best_models/model_' + str(epo) + '.pt')
@@ -176,7 +172,22 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    trainer = Trainer()
-    # trainer.load_pretrained(path="saved_models/model_364.pt")
-    trainer.train()
-    trainer.save_model('saved_models/model.pt')
+    parser = argparse.ArgumentParser(description='Train SS-GNN on PDBbind')
+    parser.add_argument('--data', default='data/processed/graphs',
+                        help='Path to processed graph directory (default: data/processed/graphs)')
+    parser.add_argument('--labels', default='data/processed/labels.pkl',
+                        help='Path to labels pickle (default: data/processed/labels.pkl)')
+    parser.add_argument('--device', default='cuda:0',
+                        help='Device to use (default: cuda:0)')
+    parser.add_argument('--runs', type=int, default=1,
+                        help='Number of independent training runs (default: 1). '
+                             'Use >1 to replicate the multi-run averaging from the paper.')
+    args = parser.parse_args()
+
+    for run in range(args.runs):
+        if args.runs > 1:
+            print(f'\n=== Run {run + 1}/{args.runs} ===')
+        run_suffix = f'_run{run}' if args.runs > 1 else ''
+        trainer = Trainer(data_path=args.data, label_path=args.labels, device=args.device)
+        trainer.train()
+        trainer.save_model(f'saved_models/model{run_suffix}.pt')

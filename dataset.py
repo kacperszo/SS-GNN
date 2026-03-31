@@ -26,21 +26,19 @@ from torch_geometric.transforms import (RandomFlip,
                                         Compose,
                                         Center)
 
-path = '../data/mice_features2/all'
-labels = '../data/mice_features2/total_labels.pkl'
-
 class GINDataset(Dataset):
 
-    def __init__(self, root=path, label=labels, phase='train'):
+    def __init__(self, root='data/processed/graphs', label='data/processed/labels.pkl', phase='train'):
         'Initialization'
         # root = os.path.join(root, phase)
-        total = os.listdir(root)
+        with open(label, 'rb') as f:
+            self.labels = pickle.load(f)
+
+        total = [f for f in os.listdir(root) if f.split('.')[0] in self.labels]
         self.root = root
         self.data = total
         self.phase = phase
         np.random.seed(16)
-        with open(label, 'rb') as f:
-            self.labels = pickle.load(f)
 
         total_size = len(total)
         permu = np.random.permutation(total_size)

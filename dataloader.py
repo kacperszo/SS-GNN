@@ -18,7 +18,9 @@ from torch.utils.data.dataloader import default_collate
 
 from torch_geometric.data import Data
 from batch import Batch
-from torch._six import container_abcs, string_classes, int_classes
+import collections.abc as container_abcs
+string_classes = str
+int_classes = int
 
 
 class Collater(object):
