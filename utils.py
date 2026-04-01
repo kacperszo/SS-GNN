@@ -184,6 +184,5 @@ def get_gnn_features(protein, ligand, threshhold=5):
         edge_features_list.append(edge_feature)
 
     edge_index = torch.tensor(np.array(edges_list).T, dtype=torch.long)
-    edge_attr = torch.tensor(np.array(edge_features_list),
-                             dtype=torch.float)
+    edge_attr = torch.tensor(np.array(edge_features_list), dtype=torch.long)
     return x, edge_index, edge_attr

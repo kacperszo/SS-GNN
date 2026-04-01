@@ -12,11 +12,20 @@ The `SS-GNN` defines the prediction of DTBA as a regression task, in which the m
 
 ### 1. Install dependencies
 
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
+**With uv (recommended):**
 
 ```bash
 uv sync
 ```
+
+**Without uv (e.g. on a server):**
+
+```bash
+bash setup_env.sh
+source .venv/bin/activate
+```
+
+> `torch-sparse` and `torch-scatter` require PyTorch to be present at build time, so they are installed separately before the rest of the dependencies.
 
 ### 2. Download data
 

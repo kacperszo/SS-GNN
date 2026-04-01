@@ -37,7 +37,7 @@ class Trainer:
             Drug Target Binding Affinity
     '''
 
-    def __init__(self, data_path, label_path, device='cuda:0'):
+    def __init__(self, data_path, label_path, device='cuda:0', run_suffix=''):
         self.lr = 0.001
         self.decay = 0.00001
         self.BATCH_SIZE = 64
@@ -45,6 +45,7 @@ class Trainer:
 
         self.path = data_path
         self.label_path = label_path
+        self.run_suffix = run_suffix
 
         self.device = device
         self.config = None
@@ -102,13 +103,38 @@ class Trainer:
                 pearsonr(y_label, y_pred)[1],
                 concordance_index(y_label, y_pred), y_pred]
 
-    def train(self):
+    def save_checkpoint(self, epo, currentPearson):
+        path = f'saved_models/checkpoint{self.run_suffix}.pt'
+        torch.save({
+            'epoch': epo,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.opt.state_dict(),
+            'currentPearson': currentPearson,
+        }, path)
+
+    def load_checkpoint(self):
+        path = f'saved_models/checkpoint{self.run_suffix}.pt'
+        if not os.path.exists(path):
+            return 0, 0.0
+        ckpt = torch.load(path, map_location=self.device)
+        self.model.load_state_dict(ckpt['model_state_dict'])
+        self.opt.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
+        currentPearson = ckpt['currentPearson']
+        print(f'Resumed from epoch {ckpt["epoch"]} (best Pearson so far: {currentPearson:.4f})')
+        return start_epoch, currentPearson
+
+    def train(self, resume=False):
         max_MSE = 10000
         model_max = copy.deepcopy(self.model)
         print('--- Go for Training ---')
         t_start = time.time()
+        start_epoch = 0
         currentPearson = 0.0
-        epoch_bar = tqdm(range(self.train_epoch), desc='Epochs')
+        if resume:
+            start_epoch, currentPearson = self.load_checkpoint()
+        epoch_bar = tqdm(range(start_epoch, self.train_epoch), desc='Epochs',
+                         initial=start_epoch, total=self.train_epoch)
         for epo in epoch_bar:
             batch_bar = tqdm(self.trainloader, desc=f'Epoch {epo+1}', leave=False)
             for i, (x, y) in enumerate(batch_bar):
@@ -133,10 +159,11 @@ class Trainer:
                 epoch_bar.set_postfix(MSE=f'{mse:.4f}', R=f'{r2:.4f}', CI=f'{CI:.4f}')
                 print(f'Epoch {epo+1} | MSE: {mse:.4f} | Pearson: {r2:.4f} '
                       f'(p={p_val:.2e}) | CI: {CI:.4f}')
-            self.save_model('saved_models/model_'+str(epo)+'.pt')
+            self.save_model(f'saved_models/model_{epo}{self.run_suffix}.pt')
             if r2 > currentPearson:
-                self.save_model('best_models/model_' + str(epo) + '.pt')
+                self.save_model(f'best_models/model_{epo}{self.run_suffix}.pt')
                 currentPearson = r2
+            self.save_checkpoint(epo, currentPearson)
         self.model = model_max
         print('--- Go for Testing ---')
         mse, r2, p_val, CI, logits = self.test_()
@@ -182,12 +209,19 @@ if __name__ == '__main__':
     parser.add_argument('--runs', type=int, default=1,
                         help='Number of independent training runs (default: 1). '
                              'Use >1 to replicate the multi-run averaging from the paper.')
+    parser.add_argument('--resume', action='store_true',
+                        help='Resume training from the last saved checkpoint.')
     args = parser.parse_args()
 
     for run in range(args.runs):
         if args.runs > 1:
             print(f'\n=== Run {run + 1}/{args.runs} ===')
         run_suffix = f'_run{run}' if args.runs > 1 else ''
-        trainer = Trainer(data_path=args.data, label_path=args.labels, device=args.device)
-        trainer.train()
-        trainer.save_model(f'saved_models/model{run_suffix}.pt')
+        final_model = f'saved_models/model{run_suffix}.pt'
+        if args.resume and os.path.exists(final_model):
+            print(f'Run {run + 1} already complete ({final_model} exists), skipping.')
+            continue
+        trainer = Trainer(data_path=args.data, label_path=args.labels,
+                          device=args.device, run_suffix=run_suffix)
+        trainer.train(resume=args.resume)
+        trainer.save_model(final_model)
