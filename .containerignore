@@ -1,0 +1,14 @@
+# Only the code belongs in the image. Everything else is bind-mounted at run time.
+#
+# Without this, `COPY . /work` pulls in the venv, the processed graphs and — because
+# data/v2019 and data/CASF-2016 are symlinks into the shared dataset — twenty-odd
+# gigabytes of PDBbind as well.
+.venv/
+.git/
+__pycache__/
+*.pyc
+data/
+saved_models/
+best_models/
+images/
+*.tar.gz

@@ -2,4 +2,12 @@ data/
 best_models/*.pt
 saved_models/*.pt
 __pycache__/
-*.pyc
+*.pycwheels/
+
+# authors' supporting-information script — kept locally as reference, never published
+gnn_features_pEdge.py
+
+# never commit datasets or built wheels — they are gigabytes and CASF is not redistributable
+CASF_backup.tar.gz
+*.tar.gz
+wheels/

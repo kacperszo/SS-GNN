@@ -183,6 +183,30 @@ def get_gnn_features(protein, ligand, threshhold=5):
             continue
         edge_features_list.append(edge_feature)
 
+    # Covalent bonds between pocket atoms. Ported from gnn_features_pEdge.py, the
+    # preprocessing script in the paper's supporting information — the version published
+    # in this repository omits them and scores ~0.10 Pearson lower on CASF-2016 as a
+    # result. The authors' script reads the protein from a pickled RDKit mol produced by
+    # an internal pipeline; here bond perception comes from RDKit's PDB parser instead,
+    # which is the one remaining difference we cannot close.
+    for p_idx in pidx:
+        try:
+            patom = protein.GetAtomWithIdx(int(p_idx))
+        except Exception:
+            continue
+        for ab in patom.GetBonds():
+            ai, aj = ab.GetBeginAtomIdx(), ab.GetEndAtomIdx()
+            # visited once from each endpoint, which is what makes the pair bidirectional
+            if ai == p_idx and aj in pidx2tidx:
+                src, dst = ai, aj
+            elif aj == p_idx and ai in pidx2tidx:
+                src, dst = aj, ai
+            else:
+                continue
+            d = float(np.linalg.norm(protein_positions[ai] - protein_positions[aj]))
+            edges_list.append((pidx2tidx[src], pidx2tidx[dst]))
+            edge_features_list.append(list(get_bonds_features(ab, is_protein=True)) + [d])
+
     edge_index = torch.tensor(np.array(edges_list).T, dtype=torch.long)
     edge_attr = torch.tensor(np.array(edge_features_list), dtype=torch.long)
     return x, edge_index, edge_attr
