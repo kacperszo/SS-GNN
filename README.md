@@ -1,3 +1,26 @@
+<!-- gnn-benchmark:begin -->
+# Running this in gnn-benchmark
+
+One tier, on a current stack.
+
+| variant | capabilities | `gnnb verify` on CASF-2016 |
+|---|---|---|
+| `ssgnn.modern` | predict, embed | 285/285, max abs diff 5.4e-05 |
+
+```bash
+podman build --format=docker -t ssgnn:latest .        # python:3.13-slim base, no micromamba
+
+gnnb verify --variant ssgnn.modern --dataset data/CASF-2016/coreset
+gnnb run --variant ssgnn.modern --capability predict --dataset <complexes> --gpu
+gnnb run --variant ssgnn.modern --capability embed   --dataset <complexes>
+```
+
+The encoder boundary and the traps worth knowing are in [CLAUDE.md](CLAUDE.md).
+
+<!-- gnn-benchmark:end -->
+
+---
+
 ## SS-GNN
 
 > This is a Pytorch implementation of `SS-GNN`, a simple-structured GNN model for drug-target binding affinity (DTBA) prediction as described in the following paper:
