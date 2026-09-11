@@ -17,6 +17,68 @@ gnnb run --variant ssgnn.modern --capability embed   --dataset <complexes>
 
 The encoder boundary and the traps worth knowing are in [CLAUDE.md](CLAUDE.md).
 
+## Running it without the harness
+
+This fork runs on its own; the benchmark adds bookkeeping, not capability. Every
+command below is generated from the adapter by `gnnb howto`, so it cannot drift from
+what the harness actually runs — regenerate with `python tools/sync_model_readmes.py`.
+
+All of them run with `--network=none` and a read-only root filesystem. Nothing is
+fetched at run time; dependencies are resolved when the image is built.
+
+### What it eats
+
+One directory per complex, named after it:
+
+    <complexes>/<id>/<id>_protein.pdb
+    <complexes>/<id>/<id>_ligand.sdf      # or .mol2; several models try both
+
+A joint ligand-pocket graph built from the protein and ligand files directly.
+
+### Build
+
+```bash
+podman build --format=docker -t ssgnn:latest .   # python:3.13-slim, torch 2.11
+```
+
+### Run
+
+```bash
+# ssgnn.modern — localhost/ssgnn:latest
+# source: models/ssgnn
+
+# predict
+podman run --rm \
+    --network=none --read-only \
+    --tmpfs /tmp:rw,size=2g \
+    -v /path/to/complexes:/data:ro \
+    -v /path/to/outputs:/outputs:rw,U \
+    -v "$PWD/best_models:/ckpt:ro" \
+    localhost/ssgnn:latest \
+    python predict_complexes.py --complexes /data --model /ckpt/model_665.pt --out /outputs/predictions.csv --device cpu
+
+# embed
+podman run --rm \
+    --network=none --read-only \
+    --tmpfs /tmp:rw,size=2g \
+    -v /path/to/complexes:/data:ro \
+    -v /path/to/outputs:/outputs:rw,U \
+    -v "$PWD/best_models:/ckpt:ro" \
+    localhost/ssgnn:latest \
+    python embed_complexes.py --complexes /data --model /ckpt/model_665.pt --out /outputs/embeddings.npz --pool sum --device cpu
+```
+
+### What comes out
+
+| file | holds |
+|---|---|
+| `predictions.csv` | `complex_id,y_pred` |
+| `embeddings.npz` | `ids` and `vectors`, 256-dim — ours. `self.linear` runs *per edge* and `global_add_pool` sums its scalars, so there is no graph-level vector to strip a head from; we pool the head's input instead |
+
+### Before you trust the numbers
+
+**No compiled PyG extensions.** `torch_sparse` was required by one import in `batch.py`, a vendored copy of PyG's old `Batch` whose SparseTensor branches are dead code here — SS-GNN has no `adj_t` and no `ToSparseTensor`. That import is optional now, which is what lets this image track a current torch; before, it needed wheels compiled locally against one exact torch version, and those wheels were gitignored, so the image could not be rebuilt from a clone at all.
+
 <!-- gnn-benchmark:end -->
 
 ---

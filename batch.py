@@ -15,9 +15,27 @@
 
 import torch
 from torch import Tensor
-from torch_sparse import SparseTensor, cat
 import torch_geometric
 from torch_geometric.data import Data
+
+# `torch_sparse` is optional here, and making it so is what lets this image track current
+# torch. It is a compiled extension built against one torch version, so requiring it pins the
+# whole environment to whatever it was built for — and PyG stopped needing it in 2.4.
+#
+# The branches below that test for `SparseTensor` came with this file, which is a vendored
+# copy of PyG's old `Batch`. Nothing in SS-GNN produces one: there is no `adj_t`, no
+# `ToSparseTensor` transform, and the model's collation only ever sees dense tensors. So they
+# are dead code here rather than a feature being dropped — but they are kept working, because
+# `isinstance(x, ())` is False for every x, and the branches simply never fire when the
+# extension is absent.
+try:
+    from torch_sparse import SparseTensor, cat as sparse_cat
+
+    SPARSE_TYPES: tuple = (SparseTensor,)
+except ImportError:  # pragma: no cover - exercised by every current image
+    SparseTensor = None
+    sparse_cat = None
+    SPARSE_TYPES = ()
 
 
 class Batch(Data):
@@ -80,7 +98,7 @@ class Batch(Data):
                 if isinstance(item, Tensor) and item.dtype != torch.bool:
                     if not isinstance(cum, int) or cum != 0:
                         item = item + cum
-                elif isinstance(item, SparseTensor):
+                elif isinstance(item, SPARSE_TYPES):
                     value = item.storage.value()
                     if value is not None and value.dtype != torch.bool:
                         if not isinstance(cum, int) or cum != 0:
@@ -102,7 +120,7 @@ class Batch(Data):
                 if isinstance(item, Tensor):
                     size = item.size(cat_dim)
                     device = item.device
-                elif isinstance(item, SparseTensor):
+                elif isinstance(item, SPARSE_TYPES):
                     size = torch.tensor(item.sizes())[torch.tensor(cat_dim)]
                     device = item.device()
 
@@ -159,8 +177,8 @@ class Batch(Data):
             item = items[0]
             if isinstance(item, Tensor):
                 batch[key] = torch.cat(items, ref_data.__cat_dim__(key, item))
-            elif isinstance(item, SparseTensor):
-                batch[key] = cat(items, ref_data.__cat_dim__(key, item))
+            elif isinstance(item, SPARSE_TYPES):
+                batch[key] = sparse_cat(items, ref_data.__cat_dim__(key, item))
             elif isinstance(item, (int, float)):
                 batch[key] = torch.tensor(items)
 
@@ -192,7 +210,7 @@ class Batch(Data):
                     start = self.__slices__[key][i]
                     end = self.__slices__[key][i + 1]
                     item = item.narrow(dim, start, end - start)
-                elif isinstance(item, SparseTensor):
+                elif isinstance(item, SPARSE_TYPES):
                     for j, dim in enumerate(self.__cat_dims__[key]):
                         start = self.__slices__[key][i][j].item()
                         end = self.__slices__[key][i + 1][j].item()
@@ -207,7 +225,7 @@ class Batch(Data):
                 if isinstance(item, Tensor):
                     if not isinstance(cum, int) or cum != 0:
                         item = item - cum
-                elif isinstance(item, SparseTensor):
+                elif isinstance(item, SPARSE_TYPES):
                     value = item.storage.value()
                     if value is not None and value.dtype != torch.bool:
                         if not isinstance(cum, int) or cum != 0:
