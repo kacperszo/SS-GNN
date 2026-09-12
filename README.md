@@ -1,47 +1,47 @@
-<!-- gnn-benchmark:begin -->
-# Running this in gnn-benchmark
+# SS-GNN — a deliberately small joint graph over ligand and pocket
 
-One tier, on a current stack.
+> A fork maintained for [gnn-benchmark](../../README.md). The authors' own README is
+> kept as [README.upstream.md](README.upstream.md) for attribution and for their
+> description of the method — **its build and run instructions are not current for
+> this fork.**
 
-| variant | capabilities | `gnnb verify` on CASF-2016 |
-|---|---|---|
-| `ssgnn.modern` | predict, embed | 285/285, max abs diff 5.4e-05 |
+## What it is
 
-```bash
-podman build --format=docker -t ssgnn:latest .        # python:3.13-slim base, no micromamba
+Two GINConv layers over one joint ligand-pocket graph, then a per-edge MLP whose
+scalar outputs are summed into the prediction. The paper's point is that a shallow network on a
+well-chosen graph competes with much larger ones.
 
-gnnb verify --variant ssgnn.modern --dataset data/CASF-2016/coreset
-gnnb run --variant ssgnn.modern --capability predict --dataset <complexes> --gpu
-gnnb run --variant ssgnn.modern --capability embed   --dataset <complexes>
-```
+**Atom coordinates enter as node features.** `utils.py:153,158` append each atom's raw xyz to its
+feature vector and `model.py:81` concatenates `data.pos / 10` into the node representation — the
+authors' own design, and the reason this model is not invariant to where the complex sits.
 
-The encoder boundary and the traps worth knowing are in [CLAUDE.md](CLAUDE.md).
+## State
 
-## Running it without the harness
+| | |
+|---|---|
+| CASF-2016 scoring | **R 0.779**, RMSE 1.417, n=285 |
+| embedding | 256d, **ours**, probe R 0.694 — 89% of its own head |
+| `gnnb verify` | 285/285, 5.4e-05 |
+| invariance | **none declared** — a translation that changes no distance moves the prediction 0.48 |
 
-This fork runs on its own; the benchmark adds bookkeeping, not capability. Every
-command below is generated from the adapter by `gnnb howto`, so it cannot drift from
-what the harness actually runs — regenerate with `python tools/sync_model_readmes.py`.
-
-All of them run with `--network=none` and a read-only root filesystem. Nothing is
-fetched at run time; dependencies are resolved when the image is built.
-
-### What it eats
-
-One directory per complex, named after it:
-
-    <complexes>/<id>/<id>_protein.pdb
-    <complexes>/<id>/<id>_ligand.sdf      # or .mol2; several models try both
-
-A joint ligand-pocket graph built from the protein and ligand files directly.
-
-### Build
+## Build
 
 ```bash
 podman build --format=docker -t ssgnn:latest .   # python:3.13-slim, torch 2.11
 ```
 
-### Run
+## Run it, without the harness
+
+Generated from this model's adapter by `gnnb howto`, so these are the exact commands
+the benchmark issues — regenerate with `python tools/sync_model_readmes.py`. Every one
+runs with `--network=none` and a read-only root filesystem.
+
+Input is one directory per complex:
+
+    <complexes>/<id>/<id>_protein.pdb
+    <complexes>/<id>/<id>_ligand.sdf      # or .mol2; several models try both
+
+A joint ligand-pocket graph built from the protein and ligand files directly.
 
 ```bash
 # ssgnn.modern — localhost/ssgnn:latest
@@ -68,148 +68,17 @@ podman run --rm \
     python embed_complexes.py --complexes /data --model /ckpt/model_665.pt --out /outputs/embeddings.npz --pool sum --device cpu
 ```
 
-### What comes out
+## What comes out
 
 | file | holds |
 |---|---|
 | `predictions.csv` | `complex_id,y_pred` |
 | `embeddings.npz` | `ids` and `vectors`, 256-dim — ours. `self.linear` runs *per edge* and `global_add_pool` sums its scalars, so there is no graph-level vector to strip a head from; we pool the head's input instead |
 
-### Before you trust the numbers
+## Before you trust the numbers
 
 **No compiled PyG extensions.** `torch_sparse` was required by one import in `batch.py`, a vendored copy of PyG's old `Batch` whose SparseTensor branches are dead code here — SS-GNN has no `adj_t` and no `ToSparseTensor`. That import is optional now, which is what lets this image track a current torch; before, it needed wheels compiled locally against one exact torch version, and those wheels were gitignored, so the image could not be rebuilt from a clone at all.
 
-<!-- gnn-benchmark:end -->
+## Maintainer notes
 
----
-
-## SS-GNN
-
-> This is a Pytorch implementation of `SS-GNN`, a simple-structured GNN model for drug-target binding affinity (DTBA) prediction as described in the following paper:
-
-
-The `SS-GNN` defines the prediction of DTBA as a regression task, in which the model’s input is the drug-target representation, and the output is a continuous value representing the binding affinity score between the drug and the target protein. The overall architecture of the `SS-GNN` is shown in the figure below.
-
-![pic1](./images/1.jpg)
-
-
-## Get Started
-
-### 1. Install dependencies
-
-**With uv (recommended):**
-
-```bash
-uv sync
-```
-
-**Without uv (e.g. on a server):**
-
-```bash
-bash setup_env.sh
-source .venv/bin/activate
-```
-
-> `torch-sparse` and `torch-scatter` require PyTorch to be present at build time, so they are installed separately before the rest of the dependencies.
-
-### 2. Download data
-
-Download [PDBbind v2019](http://www.pdbbind.org.cn/) and [CASF-2016](http://www.pdbbind.org.cn/casf.php) and place them under `data/`:
-
-```
-data/
-  v2019/          # PDBbind general set — one subdirectory per complex
-  CASF-2016/
-    coreset/      # 285 complexes used as test set
-```
-
-### 3. Preprocess
-
-Build binding affinity labels:
-
-```bash
-uv run python make_labels.py
-```
-
-Extract graph features from raw PDB/mol2 files (resumable — safe to interrupt and re-run):
-
-```bash
-uv run python gnn_features.py
-```
-
-Options:
-
-```
---pdbbind   Path to PDBbind directory       (default: data/v2019)
---coreset   Path to CASF core set directory (default: data/CASF-2016/coreset)
---out       Output directory for graphs     (default: data/processed/graphs)
---threshold Distance cutoff in Ångströms    (default: 5.0)
---workers   Number of parallel workers      (default: cpu_count - 1)
-```
-
-After preprocessing, `data/processed/` will contain:
-
-```
-data/processed/
-  graphs/       # one .pkl per complex: (x, edge_index, edge_attr)
-  labels.pkl    # dict {pdb_id: -log(Kd/Ki)}
-```
-
-### 4. Train
-
-```bash
-uv run python train.py
-```
-
-Options:
-
-```
---data    Path to processed graphs directory  (default: data/processed/graphs)
---labels  Path to labels pickle               (default: data/processed/labels.pkl)
---device  Torch device                        (default: cuda:0)
---runs    Number of independent runs          (default: 1)
-```
-
-To reproduce the paper's multi-run average (Table 5), use `--runs 5` or more. Each run saves its model as `saved_models/model_run0.pt`, `model_run1.pt`, etc.
-
-### 5. Evaluate on CASF-2016
-
-Preprocess the core set (285 complexes, one-time):
-
-```bash
-uv run python make_coreset_graphs.py
-```
-
-Run evaluation on a saved checkpoint:
-
-```bash
-uv run python evaluate.py --model best_models/model_42.pt
-```
-
-Options:
-
-```
---model       Path to model checkpoint (.pt)          (required)
---graphs      Path to coreset graphs                  (default: data/processed/coreset_graphs)
---labels      Path to CoreSet.dat                     (default: data/CASF-2016/power_scoring/CoreSet.dat)
---device      Torch device                            (default: cuda:0)
---batch-size  Batch size                              (default: 32)
---out         Save predictions to .csv                (optional)
-```
-
-
-## Known data issues
-
-- **`6fuk` missing label**: In PDBbind v2019, the structural data directory is named `6fuk` but the index file (`INDEX_general_PL_data.2019`) records it as `6ful`. This is a typo in the original database. As a result, `6fuk` is silently skipped during training (the dataset filters to complexes that have both a graph and a label).
-
-## Citation
-
-When using this project in your research, please cite:
-<section id="citation">
-  <blockquote>
-    Zhang, S., Jin, Y., Liu, T., Wang, Q., Zhang, Z., Zhao, S., & Shan, B. (2023).<br>
-    <strong>SS-GNN: A Simple-Structured Graph Neural Network for Affinity Prediction.</strong><br>
-    <i>ACS Omega</i>, 8(25), 22496–22507.<br>
-    <a href="https://doi.org/10.1021/acsomega.3c00085">https://doi.org/10.1021/acsomega.3c00085</a>
-  </blockquote>
-</section>
+`CLAUDE.md` in this directory holds what breaks if it is changed back.
